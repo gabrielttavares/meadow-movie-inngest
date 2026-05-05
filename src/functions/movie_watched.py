@@ -44,9 +44,7 @@ async def fetch_movie_data(movie_title: str) -> OmdbMovieResponse:
     return movie_data
 
 
-def send_plot_email(
-    recipient_email: str, movie_title: str, plot_summary: str, run_id: str
-) -> dict:
+def send_plot_email(recipient_email: str, movie_title: str, plot_summary: str, run_id: str) -> dict:
     idempotency_key = f"{run_id}-send-plot-email"
 
     try:
@@ -108,6 +106,8 @@ async def movie_watched_handler(ctx: inngest.Context, step: inngest.Step) -> dic
     actual_title = movie_data.get("Title", event_data.movie_title)
     plot_summary = movie_data["Plot"]
 
+    ctx.logger.info(f"Fetched movie data | title='{actual_title}' | year={movie_data.get('Year')}")
+
     email_response = await step.run(
         "send-plot-email",
         partial(
@@ -117,6 +117,10 @@ async def movie_watched_handler(ctx: inngest.Context, step: inngest.Step) -> dic
             plot_summary,
             ctx.run_id,
         ),
+    )
+
+    ctx.logger.info(
+        f"Email sent | email_id={email_response.get('id')} | recipient={event_data.recipient_email}"
     )
 
     return {
