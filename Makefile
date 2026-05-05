@@ -7,7 +7,7 @@ setup:
 	@echo "\n✓ Setup complete. Edit .env with your API keys, then run: make dev"
 
 dev:
-	INNGEST_DEV=1 .venv/bin/uvicorn src.main:app --reload --port 8000
+	INNGEST_DEV=1 .venv/bin/uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
 
 test:
 	OMDB_API_KEY=test .venv/bin/pytest -v

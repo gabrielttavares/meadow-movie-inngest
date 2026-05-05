@@ -90,7 +90,9 @@ async def handle_permanent_failure(ctx: inngest.Context) -> None:
     retries=10,
     on_failure=handle_permanent_failure,
 )
-async def movie_watched_handler(ctx: inngest.Context, step: inngest.Step) -> dict:
+async def movie_watched_handler(ctx: inngest.Context) -> dict:
+    step = ctx.step
+
     try:
         event_data = MovieWatchedEventData(**(ctx.event.data or {}))
     except pydantic.ValidationError as validation_error:
