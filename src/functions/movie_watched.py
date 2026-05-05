@@ -3,8 +3,10 @@ from functools import partial
 
 import httpx
 import inngest
+import pydantic
 import resend
 
+from src.functions.schemas import MovieWatchedEventData, OmdbMovieResponse
 from src.inngest_client import client
 
 OMDB_BASE_URL = "https://www.omdbapi.com/"
@@ -12,7 +14,7 @@ OMDB_REQUEST_TIMEOUT_SECONDS = 10
 RESEND_SENDER_ADDRESS = "movies@meadow.dev"
 
 
-async def fetch_movie_data(movie_title: str) -> dict:
+async def fetch_movie_data(movie_title: str) -> OmdbMovieResponse:
     api_key = os.environ["OMDB_API_KEY"]
 
     async with httpx.AsyncClient(timeout=OMDB_REQUEST_TIMEOUT_SECONDS) as http_client:
@@ -29,7 +31,7 @@ async def fetch_movie_data(movie_title: str) -> dict:
 
     response.raise_for_status()
 
-    movie_data = response.json()
+    movie_data: OmdbMovieResponse = response.json()
 
     if movie_data.get("Response") == "False":
         raise inngest.NonRetriableError(
@@ -86,31 +88,28 @@ async def handle_permanent_failure(ctx: inngest.Context) -> None:
     on_failure=handle_permanent_failure,
 )
 async def movie_watched_handler(ctx: inngest.Context, step: inngest.Step) -> dict:
-    event_data = ctx.event.data or {}
-
-    movie_title = event_data.get("movie_title")
-    recipient_email = event_data.get("recipient_email")
-
-    if not movie_title:
-        raise inngest.NonRetriableError(message="Missing 'movie_title' in event data")
-    if not recipient_email:
-        raise inngest.NonRetriableError(message="Missing 'recipient_email' in event data")
+    try:
+        event_data = MovieWatchedEventData(**(ctx.event.data or {}))
+    except pydantic.ValidationError as validation_error:
+        raise inngest.NonRetriableError(
+            message=f"Invalid event data: {validation_error}"
+        ) from validation_error
 
     movie_data = await step.run(
         "fetch-movie-data",
-        partial(fetch_movie_data, movie_title),
+        partial(fetch_movie_data, event_data.movie_title),
     )
 
-    actual_title = movie_data.get("Title", movie_title)
+    actual_title = movie_data.get("Title", event_data.movie_title)
     plot_summary = movie_data["Plot"]
 
     email_response = await step.run(
         "send-plot-email",
-        partial(send_plot_email, recipient_email, actual_title, plot_summary),
+        partial(send_plot_email, event_data.recipient_email, actual_title, plot_summary),
     )
 
     return {
         "movie_title": actual_title,
-        "recipient_email": recipient_email,
+        "recipient_email": event_data.recipient_email,
         "email_id": email_response.get("id"),
     }
