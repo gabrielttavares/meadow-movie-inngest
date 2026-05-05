@@ -3,11 +3,13 @@ from functools import partial
 
 import httpx
 import inngest
+import resend
 
 from src.inngest_client import client
 
 OMDB_BASE_URL = "https://www.omdbapi.com/"
 OMDB_REQUEST_TIMEOUT_SECONDS = 10
+RESEND_SENDER_ADDRESS = "movies@meadow.dev"
 
 
 async def fetch_movie_data(movie_title: str) -> dict:
@@ -40,21 +42,75 @@ async def fetch_movie_data(movie_title: str) -> dict:
     return movie_data
 
 
+def send_plot_email(recipient_email: str, movie_title: str, plot_summary: str) -> dict:
+    try:
+        response = resend.Emails.send(
+            {
+                "from": RESEND_SENDER_ADDRESS,
+                "to": [recipient_email],
+                "subject": f"Plot Summary: {movie_title}",
+                "text": (
+                    f"You recently watched {movie_title}!\n\n"
+                    f"Here's the plot summary:\n\n"
+                    f"{plot_summary}"
+                ),
+            }
+        )
+    except (
+        resend.exceptions.ValidationError,
+        resend.exceptions.MissingApiKeyError,
+        resend.exceptions.InvalidApiKeyError,
+        resend.exceptions.MissingRequiredFieldsError,
+    ) as permanent_error:
+        raise inngest.NonRetriableError(
+            message=f"Resend permanent error (won't retry): {permanent_error}"
+        ) from permanent_error
+
+    return response
+
+
+async def handle_permanent_failure(ctx: inngest.Context) -> None:
+    event_data = ctx.event.data or {}
+    ctx.logger.error(
+        "movie.watched function permanently failed | "
+        f"movie_title={event_data.get('movie_title', 'N/A')} | "
+        f"recipient_email={event_data.get('recipient_email', 'N/A')} | "
+        f"run_id={ctx.run_id}"
+    )
+
+
 @client.create_function(
     fn_id="movie-watched-handler",
     trigger=inngest.TriggerEvent(event="meadow_api/movie.watched"),
     retries=10,
+    on_failure=handle_permanent_failure,
 )
 async def movie_watched_handler(ctx: inngest.Context, step: inngest.Step) -> dict:
     event_data = ctx.event.data or {}
 
     movie_title = event_data.get("movie_title")
+    recipient_email = event_data.get("recipient_email")
+
     if not movie_title:
         raise inngest.NonRetriableError(message="Missing 'movie_title' in event data")
+    if not recipient_email:
+        raise inngest.NonRetriableError(message="Missing 'recipient_email' in event data")
 
     movie_data = await step.run(
         "fetch-movie-data",
         partial(fetch_movie_data, movie_title),
     )
 
-    return {"movie_title": movie_data.get("Title", movie_title), "plot": movie_data["Plot"]}
+    actual_title = movie_data.get("Title", movie_title)
+    plot_summary = movie_data["Plot"]
+
+    email_response = await step.run(
+        "send-plot-email",
+        partial(send_plot_email, recipient_email, actual_title, plot_summary),
+    )
+
+    return {
+        "movie_title": actual_title,
+        "recipient_email": recipient_email,
+        "email_id": email_response.get("id"),
+    }
