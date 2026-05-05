@@ -49,6 +49,44 @@ meadow_api/movie.watched event
 
 The two-step split is what makes this work. Inngest steps are the unit of durability: each one retries independently, and its return value is memoized. So if OMDb succeeds on the first attempt but Resend is temporarily down, retries go straight to the email step without re-fetching movie data. That's the main mechanism for "maximizing the chances of successfully sending the email." More detail in [ADR-001](DECISIONS.md).
 
+## Demo
+
+Tested locally against the Inngest Dev Server with real OMDb and Resend API keys.
+
+### Happy path: "Inception"
+
+Both servers running, function registered and ready to receive events:
+
+![Functions registered](docs/demo/01-functions-registered.jpeg)
+
+After triggering a `movie.watched` event, both steps complete successfully — `fetch-movie-data` (539ms) pulls the OMDb data, `send-plot-email` (604ms) delivers it via Resend:
+
+![Run completed](docs/demo/02-run-completed.jpeg)
+
+The event payload and step orchestration timeline. Each step retries independently and its output is memoized:
+
+![Run detail](docs/demo/03-run-detail-payload.jpeg)
+
+Clicking into the `fetch-movie-data` step shows the full OMDb response — title, plot, director, actors, ratings. This is the memoized data that wouldn't be re-fetched if the email step failed:
+
+![Step output](docs/demo/04-step-output-omdb.jpeg)
+
+The email arrives in Gmail with the plot summary:
+
+![Email inbox](docs/demo/05-email-inbox.jpeg)
+
+![Email opened](docs/demo/06-email-opened.jpeg)
+
+### Failure path: nonexistent movie
+
+Sending a `movie.watched` event with a title that doesn't exist in OMDb. The function fails immediately with a `NonRetriableError` — no retries wasted on a deterministic failure:
+
+![Failure - NonRetriableError](docs/demo/07-failure-nonretriable.jpeg)
+
+The `on_failure` handler fires and logs structured context (movie title, recipient, run ID). In the terminal you can see "permanently failed" with the relevant details:
+
+![Failure - logs](docs/demo/08-failure-logs.jpeg)
+
 ## Design decisions
 
 Full decision records are in [DECISIONS.md](DECISIONS.md). Here's the summary.
@@ -100,4 +138,6 @@ When all retries are exhausted, the failure handler logs structured context: mov
 
 ## Recommendation for improving this exercise
 
-This exercise tests greenfield implementation, but most day-to-day engineering is modifying existing systems under constraints. An alternative that might be more revealing: provide a partially-implemented function with a subtle bug. For example, both API calls in a single function body with no step boundary, so OMDb gets re-fetched on every Resend retry. Ask candidates to find the problem and fix it. That tests debugging instinct and Inngest-specific understanding more directly than a blank-slate build, and it's closer to what the actual work looks like.
+While I enjoyed this take home exercise and can see how it surfaces technical depth, I'm also thinking that most day-to-day engineering is modifying existing systems under constraints.
+
+So maybe an even better revealing exercise would provide a partially-implemented function with a subtle bug. For example, both API calls in a single function body with no step boundary, so OMDb gets re-fetched on every Resend retry. Then, the exercise would ask candidates to find the problem and fix it. Perhaps, that would test debugging instinct and Inngest-specific understanding more directly than a blank-slate build, and it would also be closer to what the actual work looks like.
