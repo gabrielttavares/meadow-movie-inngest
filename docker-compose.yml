@@ -1,0 +1,18 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - INNGEST_DEV=1
+      - INNGEST_BASE_URL=http://inngest:8288
+      - OMDB_API_KEY=${OMDB_API_KEY}
+      - RESEND_API_KEY=${RESEND_API_KEY}
+    depends_on:
+      - inngest
+
+  inngest:
+    image: inngest/inngest:latest
+    ports:
+      - "8288:8288"
+    command: ["inngest", "dev", "-u", "http://app:8000/api/inngest"]
