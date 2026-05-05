@@ -11,7 +11,7 @@ from src.inngest_client import client
 
 OMDB_BASE_URL = "https://www.omdbapi.com/"
 OMDB_REQUEST_TIMEOUT_SECONDS = 10
-RESEND_SENDER_ADDRESS = "movies@meadow.dev"
+RESEND_SENDER_ADDRESS = os.environ.get("RESEND_SENDER_ADDRESS", "onboarding@resend.dev")
 
 
 async def fetch_movie_data(movie_title: str) -> OmdbMovieResponse:
