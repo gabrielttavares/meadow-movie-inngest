@@ -44,7 +44,11 @@ async def fetch_movie_data(movie_title: str) -> OmdbMovieResponse:
     return movie_data
 
 
-def send_plot_email(recipient_email: str, movie_title: str, plot_summary: str) -> dict:
+def send_plot_email(
+    recipient_email: str, movie_title: str, plot_summary: str, run_id: str
+) -> dict:
+    idempotency_key = f"{run_id}-send-plot-email"
+
     try:
         response = resend.Emails.send(
             {
@@ -56,6 +60,7 @@ def send_plot_email(recipient_email: str, movie_title: str, plot_summary: str) -
                     f"Here's the plot summary:\n\n"
                     f"{plot_summary}"
                 ),
+                "headers": {"X-Entity-Ref-ID": idempotency_key},
             }
         )
     except (
@@ -105,7 +110,13 @@ async def movie_watched_handler(ctx: inngest.Context, step: inngest.Step) -> dic
 
     email_response = await step.run(
         "send-plot-email",
-        partial(send_plot_email, event_data.recipient_email, actual_title, plot_summary),
+        partial(
+            send_plot_email,
+            event_data.recipient_email,
+            actual_title,
+            plot_summary,
+            ctx.run_id,
+        ),
     )
 
     return {
